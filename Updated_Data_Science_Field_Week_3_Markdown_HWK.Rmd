@@ -1,0 +1,177 @@
+---
+title: "R Markdown Final Part 1- NYSHOOTING data"
+output:
+  pdf_document: default
+---
+
+```{r set_up}
+library(tidyverse)
+library(lubridate)
+library(hms)
+library(MASS)
+```
+
+This is a Notebook for Week 3 of Data Science as a Field.
+
+# Project Step 1: Start an Rmd Document
+
+*Start an Rmd document that describes and imports the shooting project dataset in a reproducible manner.*
+
+The first dataset is from catalog.data.gov and is called NYPD Shooting Incident Data (Historic). I pulled this data 12/18/2023 from [here.](https://catalog.data.gov/dataset/nypd-shooting-incident-data-historic) According to the site, this dataset: "This is a breakdown of every shooting incident that occurred in NYC going back to 2006 through the end of the previous calendar year. This data is manually extracted every quarter and reviewed by the Office of Management Analysis and Planning before being posted on the NYPD website. Each record represents a shooting incident in NYC and includes information about the event, the location and time of occurrence. In addition, information related to suspect and victim demographics is also included."
+
+```{r get_NYPD_data}
+url_in <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv"
+NYPD_shootings <- read_csv(url_in)
+```
+
+# Project Step 2: Tidy and Transform Your Data
+
+*Step 2: Add to your Rmd document a summary of the data and clean up your dataset by changing appropriate variables to factor and date types and getting rid of any columns not needed. Show the summary of your data to be sure there is no missing data. If there is missing data, describe how you plan to handle it.*
+
+One piece of this is that we haven't been told what analysis we are actually doing so determining what is unnecassary at this point is sort of impossible. Dropping Lat long because she did in the lecture.
+
+```{r summary}
+summary(NYPD_shootings)
+head(NYPD_shootings)
+```
+
+```{r data_formatting}
+NYPD_shootings$OCCUR_DATE <- as.Date(NYPD_shootings$OCCUR_DATE, format="%m/%d/%Y")
+NYPD_shootings$BORO <- as.factor(NYPD_shootings$BORO)
+NYPD_shootings$PRECINCT <- as.factor(NYPD_shootings$PRECINCT)
+NYPD_shootings$JURISDICTION_CODE <- as.factor(NYPD_shootings$JURISDICTION_CODE)
+NYPD_shootings$LOC_CLASSFCTN_DESC <- as.factor(NYPD_shootings$LOC_CLASSFCTN_DESC)
+NYPD_shootings$PERP_AGE_GROUP <- as.factor(NYPD_shootings$PERP_AGE_GROUP)
+NYPD_shootings$PERP_SEX <- as.factor(NYPD_shootings$PERP_SEX)
+NYPD_shootings$PERP_RACE <- as.factor(NYPD_shootings$PERP_RACE)
+NYPD_shootings$VIC_AGE_GROUP <- as.factor(NYPD_shootings$VIC_AGE_GROUP)
+NYPD_shootings$VIC_SEX <- as.factor(NYPD_shootings$VIC_SEX)
+NYPD_shootings$VIC_RACE <- as.factor(NYPD_shootings$VIC_RACE)
+
+NYPD_shootings$Lon_Lat <- NULL
+NYPD_shootings$X_COORD_CD <- NULL    
+NYPD_shootings$Y_COORD_CD  <- NULL       
+NYPD_shootings$Latitude <- NULL       
+NYPD_shootings$Longitude <- NULL        
+
+summary(NYPD_shootings)
+```
+
+There is a fair amount of missing data, and there is also a lot of 'UNKNOWN' data. Without knowing what question I'm trying to answer, I will probably leave the missing data in. I expect missing in this case is not randomly missing, so there could be an important insights here that would be missed otherwise.
+
+One thing that does immediately need to be fixed is that in the PERP_RACE column we have both (null) and NA data. Before continuing I will make all the (null) into NAs.
+
+```{r missing_data}
+NYPD_shootings$PERP_RACE[NYPD_shootings$PERP_RACE == "(null)"] <- NA
+summary(NYPD_shootings$PERP_RACE)
+```
+
+# Project Step 3: Add Visualizations and Analysis
+
+*Add at least two different visualizations & some analysis to your Rmd.  Does this raise additional questions that you should investigate?* 
+
+## Temporal Analysis of NYPD Shooting Incident Data
+
+This section focuses on the temporal analysis of the NYPD Shooting Incident Data to uncover patterns and insights related to the timing of shooting incidentsI'm going to do two graphs, one investigating frequency over time and one frequency of time of day.
+
+```{r graph_over_time}
+# Convert MonthYear to an ordered factor
+NYPD_shootings$MonthYear <- format(NYPD_shootings$OCCUR_DATE, "%Y-%m")
+
+NYPD_shootings$MonthYear <- factor(NYPD_shootings$MonthYear, levels = unique(NYPD_shootings$MonthYear))
+
+
+# Group and summarize data
+monthly_counts <- NYPD_shootings %>%
+  group_by(MonthYear) %>%
+  summarise(Frequency = n())
+
+# Plotting
+ggplot(monthly_counts, aes(x = MonthYear, y = Frequency, group = 1)) + 
+  geom_line() +
+  geom_smooth(method = "loess", span = 0.2, se = FALSE, color = "red") +
+  labs(title = "Monthly Frequency of Shootings",
+       x = "Month-Year",
+       y = "Frequency") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+Looking at this graph I have a few follow ups, what happened in 2021 and 2020? 2012 had a sharp decrease over the year in shooting, 2020 a sharp increase. I'd want to go investigate how the data was collected and if anything changed data wise before assuming both of these trends reflect real-world trends.
+
+Now let's look at periodicity, both by month of year and time of day.
+
+```{r periodicity}
+# Monthly Seasonality
+NYPD_shootings %>%
+    count(month = month(OCCUR_DATE, label = TRUE)) %>%
+    ggplot(aes(x = month, y = n)) +
+    geom_bar(stat = "identity", fill='orange') +
+    theme_minimal() +
+    labs(title = "Monthly Distribution of Shooting Incidents", x = "Month", y = "Number of Incidents")
+```
+
+There is a definite trend that more shootings happen in the summer months. I believe this is a well researched and established trend.
+
+```{r time_of_day_graph}
+# Convert hms to period
+NYPD_shootings$TimePeriod <- as.period(NYPD_shootings$OCCUR_TIME)
+
+# Extract the hour component
+NYPD_shootings$HourOfDay <- hour(NYPD_shootings$TimePeriod)
+
+# Count the number of occurrences by hour
+hourly_counts <- table(NYPD_shootings$HourOfDay)
+
+# Convert the frequency table to a data frame for plotting
+hourly_counts_df <- as.data.frame(hourly_counts)
+
+# Plotting with ggplot2
+library(ggplot2)
+ggplot(hourly_counts_df, aes(x = Var1, y = Freq)) + 
+  geom_bar(stat = "identity", fill = "blue") +
+  labs(title = "Frequency of Shootings by Hour of Day",
+       x = "Hour of Day (24-hour format)",
+       y = "Frequency") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) # Adjusting x-axis labels for better readability
+
+```
+
+There are also definite time of day trends, between 7 and 10 AM in the morning there are the fewest shootings, which then peak around midnight.
+
+### Predictive Power of Time
+
+All three of these variables- year, month, and hour- seem to have strong relationships with out data. I'm going to build a regression model with these variables utilizing stepwise regression to ensure each is important.
+
+```{r predictive_power_of_time}
+# Extracting year, month, and hour
+shooting_data <- NYPD_shootings %>%
+                 mutate(year = as.factor(year(OCCUR_DATE)),
+                        month = as.factor(month(OCCUR_DATE, label = TRUE)),
+                        hour = as.factor(hour(OCCUR_TIME)))
+
+# Count incidents per year, month, and hour
+shooting_data_grouped <- shooting_data %>%
+                         group_by(year, month, hour) %>%
+                         summarise(n = n())
+
+# Initial model with all predictors
+initial_model <- lm(n ~ year + month + hour, data = shooting_data_grouped)
+
+# Stepwise model selection
+stepwise_model <- stepAIC(initial_model, direction = "both")
+```
+
+For our stepwise model, we start with all three time predictors and then try removing each one. As you can see the AIC when each variable is dropped increaces, indicating the best model includes all 3 variables.
+
+```{r predictive_power_of_time_model}
+# Summary of the final model
+summary(stepwise_model)
+```
+
+# Project Step 4: Add Bias Identification
+
+*Write the conclusion to your project report and include any possible sources of bias.  Be sure to identify what your personal bias might be and how you have mitigated that.*
+
+My project centered around when police shootings by the NYPD occur. I noticed two major trend in the years 2012 and 2020. One of the first things that I think of is that those are election years, I probably have some bias that I believe politics and policy can influence violence. Those are assumptions I would have to research and try to disprove before drawing any conclusions. In the furture I would take actions to mitigate this by looking into the subject matter and try and replicate the patterns here in other areas.
